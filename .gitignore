@@ -1,0 +1,11 @@
+.env
+
+.claude
+.CLAUDE.md
+
+ORCHESTRATOR_PROMPT.md
+CLAUDE.md.template
+WORKFLOW.md
+
+# Workflow per-task artifacts (managed by init-task.sh)
+.claude/workflow/tasks/
