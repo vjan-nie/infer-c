@@ -15,8 +15,11 @@ Two decisions were left open going into M1:
 
 ## Decision 1 — Checksum: CRC32
 
-CRC32 is used over the weight file's content (everything between the
-`n_layers` field and the checksum field itself, per ADR-004's layout).
+CRC32 is used over the weight file's content. (The exact byte range —
+the entire file including `magic`/`format_version`, except the trailing
+checksum field itself — is fixed precisely in ADR-010, which also fixes
+this decision's other open point, byte order. This ADR's own original
+wording understated that scope; ADR-010 is authoritative.)
 
 Rationale: the implementation cost over a simple summed checksum is
 marginal — Python's standard library (`zlib.crc32`) and a from-scratch C

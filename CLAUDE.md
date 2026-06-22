@@ -36,15 +36,16 @@ Summary:
 infer-c/
 ├── src/
 │   ├── matrix.h / matrix.c   # implemented: row-major Matrix + ops (M0)
-│   ├── nn.h / nn.c           # placeholder: NN layers, forward pass (M2)
-│   ├── model.h / model.c     # placeholder: weight file loading (M1/M2)
-│   ├── data.h / data.c       # placeholder: MNIST data loading (M1/M2)
+│   ├── model.h / model.c     # implemented: weight file loading (M2)
+│   ├── nn.h / nn.c           # implemented: NN layers, forward pass (M2)
+│   ├── data.h / data.c       # placeholder: MNIST data loading (M3)
 │   ├── infer_c.h             # placeholder: public API entry point (M2.5)
-│   └── main.c                # placeholder: CLI demo entry point (M2)
+│   └── main.c                # placeholder: CLI demo entry point (M3)
 ├── python/
-│   └── train.py              # placeholder: trains MLP, exports weights (M1)
+│   └── train.py              # trains MLP, exports weights.bin/verification_samples.bin (M1)
 ├── tests/
-│   └── test_matrix.c         # assert-based test runner for matrix.c
+│   ├── test_matrix.c         # assert-based test runner for matrix.c
+│   └── test_nn.c             # assert-based test runner for model.c + nn.c
 ├── docs/
 │   └── adr/                  # Architecture Decision Records
 ├── .claude/                  # workflow + skills
@@ -121,15 +122,16 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
 
 ### 6.1 Build
 
-- The `all` target is currently an alias for `test` (see ADR-006). `nn.c`,
-  `model.c`, `data.c`, and `main.c` are intentionally empty placeholders
-  (M0 scope); an empty `.c` translation unit triggers
-  `warning: ISO C forbids an empty translation unit [-Wpedantic]` if
-  compiled. Do not add them to the Makefile's build list until they have
-  real content — a real `all` target (linking a demo binary) returns in
-  M2 once `main.c` has an actual `main()`. Do not "fix" the warning by
-  adding dummy content to a placeholder or relaxing `-Wpedantic` — ADR-006
-  considered and rejected both.
+- The `all` target is currently an alias for `test` (see ADR-006). `data.c`
+  and `main.c` are still intentionally empty placeholders; an empty `.c`
+  translation unit triggers `warning: ISO C forbids an empty translation
+  unit [-Wpedantic]` if compiled. Do not add them to the Makefile's build
+  list until they have real content — a real `all` target (linking a demo
+  binary) returns in M3 once `main.c` has an actual `main()`. Do not "fix"
+  the warning by adding dummy content to a placeholder or relaxing
+  `-Wpedantic` — ADR-006 considered and rejected both. `model.c`/`nn.c`
+  graduated out of this rule in M2: they now have real content and are
+  compiled into the `test_nn` binary.
 
 ### 6.2 Matrix module
 
@@ -144,7 +146,32 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
   `mat_dims_compatible_for_*` predicates directly, with valid and invalid
   inputs.
 
-### 6.3 Testing allocation-failure paths
+### 6.3 Model loading and forward pass
+
+- `weights.bin` stores each layer's weight as `rows x cols` =
+  `out_features x in_features` (ADR-004). `model_load` transposes each
+  weight matrix at load time into `in_features x out_features` — the
+  orientation the forward pass needs for `mat_mul(input_row, W)` to
+  type-check and for `mat_add_bias` to broadcast correctly. The
+  transpose helper is `static` to `model.c`, not a `matrix.h` primitive
+  — there is no second use case for a generic transpose yet.
+- `model_load` verifies the file's CRC32 over its entire byte range
+  (minus the trailing 4-byte checksum field) *before* interpreting
+  `magic`/`format_version`/anything else (ADR-010). Do not reorder this:
+  checking structured fields before the checksum risks following a
+  corrupted `format_version` down the wrong parsing path before the
+  checksum check ever runs.
+- `model_crc32` is table-driven (256-entry `static const` lookup table,
+  standard CRC-32/ISO-HDLC, poly `0xEDB88320` reflected) — not
+  bit-by-bit. An earlier audit draft proposed bit-by-bit "for
+  auditability"; that was reconsidered in M2's plan phase: a lookup
+  table is the de facto standard (zlib itself uses one) and is no less
+  auditable when its construction is documented in a comment.
+- `model_load` returns a heap-allocated `Model*`; `model_free` frees the
+  layers, their matrices, and the `Model` struct itself in one call —
+  there is no separate `free()` step for the caller.
+
+### 6.4 Testing allocation-failure paths
 
 - To deliberately trigger a `malloc` failure in a test (e.g. for
   verifying a `NULL`-on-failure contract), keep the requested byte count
