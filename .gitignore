@@ -18,3 +18,7 @@ venv/
 
 # Dataset (downloaded, not committed — see python/download_mnist.sh)
 data/
+
+# Generated model artifacts — regenerate with python/train.py
+weights.bin
+verification_samples.bin

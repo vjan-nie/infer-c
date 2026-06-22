@@ -23,9 +23,26 @@ def load_dataset(images_path, labels_path):
     labels = load_idx_labels(labels_path).astype(np.int64)
     return torch.from_numpy(images), torch.from_numpy(labels)
 
+# Hyperparameters — explicit and named, not implicit defaults buried in
+# a function signature. SGD without momentum is sufficient for a model
+# this small; momentum=0.0 stated explicitly rather than left implicit.
+LEARNING_RATE = 0.01
+MOMENTUM = 0.0
+WEIGHT_DECAY = 0.0  # no L2 regularization — this model is small enough
+                     # and trained few enough epochs that overfitting
+                     # is not a concern; stated explicitly rather than
+                     # left as an implicit default (SonarQube S6973)
+EPOCHS = 10
+BATCH_SIZE = 64
 
-def train(model, x_train, y_train, epochs=10, batch_size=64, lr=0.01):
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+
+def train(model, x_train, y_train, epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LEARNING_RATE):
+    optimizer = torch.optim.SGD(
+        model.parameters(),
+        lr=lr,
+        momentum=MOMENTUM,
+        weight_decay=WEIGHT_DECAY,
+    )
     loss_fn = nn.CrossEntropyLoss()
     n_samples = x_train.shape[0]
 
@@ -58,7 +75,6 @@ def evaluate(model, x_test, y_test):
     model.train()
     return accuracy
 
-
 if __name__ == "__main__":
     x_train, y_train = load_dataset(
         "../data/raw/train-images-idx3-ubyte",
@@ -74,4 +90,11 @@ if __name__ == "__main__":
 
     accuracy = evaluate(model, x_test, y_test)
     print(f"Test accuracy: {accuracy * 100:.2f}%")
-    
+
+from export_weights import export_weights
+export_weights(model, "../weights.bin")
+print("Weights exported to weights.bin")
+
+from export_verification_samples import export_verification_samples
+export_verification_samples(model, x_test, "../verification_samples.bin", n_samples=20)
+print("Verification samples exported to verification_samples.bin")
