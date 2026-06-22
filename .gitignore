@@ -1,7 +1,7 @@
 .env
 
 .claude
-.CLAUDE.md
+#CLAUDE.md
 
 ORCHESTRATOR_PROMPT.md
 CLAUDE.md.template
