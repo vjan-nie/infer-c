@@ -9,3 +9,12 @@ WORKFLOW.md
 
 # Workflow per-task artifacts (managed by init-task.sh)
 .claude/workflow/tasks/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Dataset (downloaded, not committed — see python/download_mnist.sh)
+data/
