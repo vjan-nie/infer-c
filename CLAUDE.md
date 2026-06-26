@@ -39,13 +39,14 @@ infer-c/
 │   ├── model.h / model.c     # implemented: weight file loading (M2)
 │   ├── nn.h / nn.c           # implemented: NN layers, forward pass (M2)
 │   ├── data.h / data.c       # placeholder: MNIST data loading (M3)
-│   ├── infer_c.h             # placeholder: public API entry point (M2.5)
+│   ├── infer_c.h / infer_c.c # implemented: public API, opaque InferModel (M2.5)
 │   └── main.c                # placeholder: CLI demo entry point (M3)
 ├── python/
 │   └── train.py              # trains MLP, exports weights.bin/verification_samples.bin (M1)
 ├── tests/
 │   ├── test_matrix.c         # assert-based test runner for matrix.c
-│   └── test_nn.c             # assert-based test runner for model.c + nn.c
+│   ├── test_nn.c             # assert-based test runner for model.c + nn.c
+│   └── test_infer_c.c        # assert-based test runner for infer_c.c (public API only)
 ├── docs/
 │   └── adr/                  # Architecture Decision Records
 ├── .claude/                  # workflow + skills
@@ -53,9 +54,9 @@ infer-c/
 └── CLAUDE.md                 # this file
 ```
 
-`infer_c.h` is the planned future public-API header (see ADR-001): it
-deliberately stays empty until `nn.h`/`model.h` are stable, because its
-shape depends on what those modules end up exposing.
+`infer_c.h` is the project's public-API header (ADR-001): an external
+consumer only needs this header and `lib/libinfer_c.a`/`libinfer_c.so`
+— `matrix.h`/`model.h`/`nn.h` stay internal to this repo's own build.
 
 ---
 
@@ -75,6 +76,15 @@ shape depends on what those modules end up exposing.
   environment errors (`malloc` failure). Each dimension check used by an
   `assert` is factored into its own pure `mat_dims_compatible_for_*`
   predicate so it's directly testable without aborting the test binary.
+  At the public API boundary (`infer_c.h`), a third category applies
+  instead (ADR-012): never `assert`/abort on caller-supplied input —
+  return a sentinel `InferResult` (`predicted_class == -1`) so a
+  mistake by external code linking this library can never take down
+  the host process. This is the default for any future public API
+  addition, not just `infer_run`.
+- **Build flags:** every object file is compiled with `-fPIC`
+  unconditionally — one object set serves both `lib/libinfer_c.a` and
+  `lib/libinfer_c.so`, no separate PIC/non-PIC build.
 - **Testing:** no external framework. A plain `assert`-based runner per
   module (`tests/test_<module>.c`), one `test_<case>(void)` function per
   case, called sequentially from `main()`.
@@ -92,9 +102,10 @@ shape depends on what those modules end up exposing.
 3. Check `.claude/workflow/tasks/` for context on recent decisions.
 
 ### 4.2 Verifying changes
-- Build: `make` (currently an alias for `make test` — see §6.1)
+- Build: `make` (runs tests, then builds `lib/libinfer_c.a`/`.so` — see §6.1)
 - Tests: `make test`
 - Memory: `make valgrind`
+- Library only: `make lib`
 - Clean: `make clean`
 
 ### 4.3 Pull request hygiene
@@ -122,16 +133,16 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
 
 ### 6.1 Build
 
-- The `all` target is currently an alias for `test` (see ADR-006). `data.c`
-  and `main.c` are still intentionally empty placeholders; an empty `.c`
-  translation unit triggers `warning: ISO C forbids an empty translation
-  unit [-Wpedantic]` if compiled. Do not add them to the Makefile's build
-  list until they have real content — a real `all` target (linking a demo
-  binary) returns in M3 once `main.c` has an actual `main()`. Do not "fix"
-  the warning by adding dummy content to a placeholder or relaxing
-  `-Wpedantic` — ADR-006 considered and rejected both. `model.c`/`nn.c`
-  graduated out of this rule in M2: they now have real content and are
-  compiled into the `test_nn` binary.
+- `data.c` and `main.c` are still intentionally empty placeholders; an
+  empty `.c` translation unit triggers `warning: ISO C forbids an empty
+  translation unit [-Wpedantic]` if compiled. Do not add them to the
+  Makefile's build list until they have real content — a demo-binary
+  link target returns in M3 once `main.c` has an actual `main()`. Do
+  not "fix" the warning by adding dummy content to a placeholder or
+  relaxing `-Wpedantic` — ADR-006 considered and rejected both.
+  `model.c`/`nn.c`/`infer_c.c` are unaffected by this rule: they have
+  real content and are compiled into object files (`bin/*.o`) shared by
+  the test binaries and the `lib/libinfer_c.a`/`.so` targets.
 
 ### 6.2 Matrix module
 
@@ -182,6 +193,35 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
   A request like `mat_create(1000000000, 1000000000)` (~4 exabytes) is
   still unsatisfiable on any real system, exercises the same code path,
   and stays under Valgrind's threshold.
+
+### 6.5 Workflow document gaps (known, explained)
+
+- `04-review.md` is empty for tasks that never had an independent
+  Phase 3 (M0, M0b, M2b) — these were either reviewed critically
+  in-chat instead of via a separate agent session, or were small
+  sibling-task corrections scoped to skip a full three-phase cycle.
+- `01-audit.md` is empty for M0b/M2b specifically — both combined
+  Audit+Plan+Execute into a single phase (deliberate, proportional to
+  a small scoped fix), so the audit content lives inside `02-plan.md`'s
+  Context section instead of its own file.
+- `02-plan.md`/`03-diff.patch` are empty for M2-5-public-api
+  specifically — this one is a genuine process gap (the plan/diff were
+  approved and executed but never written back to these files), not a
+  deliberate skip. Left as a known gap; the actual plan content is
+  preserved in the conversation history with the project's orchestrator
+  rather than in-repo.
+
+### 6.6 Makefile: phony target name colliding with an existing directory
+
+- A target named exactly like an existing directory (e.g. `lib` as both
+  a Makefile target and the `lib/` output directory) can be silently
+  treated by Make as "already up to date" — Make sees the directory's
+  mtime and skips the recipe entirely, even though no library was ever
+  built. Always list any such target in `.PHONY` (e.g.
+  `.PHONY: all test valgrind clean lib`) so Make never treats the
+  directory's existence as satisfying the target. Found and fixed
+  during M2.5 (`lib/libinfer_c.a`/`.so` build); confirmed present in the
+  current Makefile's `.PHONY` line during M2.5's adversarial review.
 
 ---
 
