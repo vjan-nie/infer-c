@@ -243,6 +243,25 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
   during M2.5 (`lib/libinfer_c.a`/`.so` build); confirmed present in the
   current Makefile's `.PHONY` line during M2.5's adversarial review.
 
+### 6.9 Build artifacts were tracked in git until M4
+
+
+- bin/ and lib/ were never added to .gitignore from M0 onward,
+so every compiled binary, object file, and library artifact was
+committed to the repository's history. Discovered during M4's
+self-review when a routine rebuild made bin/infer show as
+"modified." Fixed in a dedicated commit (git rm -r --cached bin/ lib/ + .gitignore entries), separate from M4's actual feature
+work.
+
+- None of the prior adversarial reviews (M2, M2.5, M3) caught this,
+because repository hygiene (what's tracked vs. ignored) was never an
+explicit review checkpoint — those reviews focused on code
+correctness, memory safety, and scope discipline within the diff
+under review, not on the broader tracked-file set. Future reviews
+(or a periodic manual check) should include a quick git ls-files
+sanity pass over build-output directories as a standing check, not
+just a reaction to noticing a stray "modified" build artifact.
+
 ---
 
 ## 7. When you are unsure
