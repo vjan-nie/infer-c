@@ -38,15 +38,17 @@ infer-c/
 │   ├── matrix.h / matrix.c   # implemented: row-major Matrix + ops (M0)
 │   ├── model.h / model.c     # implemented: weight file loading (M2)
 │   ├── nn.h / nn.c           # implemented: NN layers, forward pass (M2)
-│   ├── data.h / data.c       # placeholder: MNIST data loading (M3)
+│   ├── data.h / data.c       # implemented: IDX image/label loading (M3)
 │   ├── infer_c.h / infer_c.c # implemented: public API, opaque InferModel (M2.5)
-│   └── main.c                # placeholder: CLI demo entry point (M3)
+│   ├── main.c                # implemented: single-image CLI demo (M3)
+│   └── benchmark.c           # implemented: batch accuracy tool (M3)
 ├── python/
 │   └── train.py              # trains MLP, exports weights.bin/verification_samples.bin (M1)
 ├── tests/
 │   ├── test_matrix.c         # assert-based test runner for matrix.c
 │   ├── test_nn.c             # assert-based test runner for model.c + nn.c
-│   └── test_infer_c.c        # assert-based test runner for infer_c.c (public API only)
+│   ├── test_infer_c.c        # assert-based test runner for infer_c.c (public API only)
+│   └── test_data.c           # assert-based test runner for data.c
 ├── docs/
 │   └── adr/                  # Architecture Decision Records
 ├── .claude/                  # workflow + skills
@@ -102,10 +104,11 @@ consumer only needs this header and `lib/libinfer_c.a`/`libinfer_c.so`
 3. Check `.claude/workflow/tasks/` for context on recent decisions.
 
 ### 4.2 Verifying changes
-- Build: `make` (runs tests, then builds `lib/libinfer_c.a`/`.so` — see §6.1)
+- Build: `make` (runs tests, then builds `lib/libinfer_c.a`/`.so` and `bin/infer`)
 - Tests: `make test`
 - Memory: `make valgrind`
 - Library only: `make lib`
+- Accuracy benchmark: `make benchmark` (requires `data/raw/` IDX files; not in `make test`)
 - Clean: `make clean`
 
 ### 4.3 Pull request hygiene
@@ -133,16 +136,12 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
 
 ### 6.1 Build
 
-- `data.c` and `main.c` are still intentionally empty placeholders; an
-  empty `.c` translation unit triggers `warning: ISO C forbids an empty
-  translation unit [-Wpedantic]` if compiled. Do not add them to the
-  Makefile's build list until they have real content — a demo-binary
-  link target returns in M3 once `main.c` has an actual `main()`. Do
-  not "fix" the warning by adding dummy content to a placeholder or
-  relaxing `-Wpedantic` — ADR-006 considered and rejected both.
-  `model.c`/`nn.c`/`infer_c.c` are unaffected by this rule: they have
-  real content and are compiled into object files (`bin/*.o`) shared by
-  the test binaries and the `lib/libinfer_c.a`/`.so` targets.
+- All source files under `src/` now have real content and are compiled.
+  If a future placeholder is added, remember: an empty `.c` translation
+  unit triggers `warning: ISO C forbids an empty translation unit
+  [-Wpedantic]` if compiled — do not add it to the Makefile until it has
+  real content, and do not "fix" the warning with dummy content or by
+  relaxing `-Wpedantic` (ADR-006).
 
 ### 6.2 Matrix module
 
@@ -211,7 +210,28 @@ Create the folder with `./.claude/workflow/init-task.sh <TASK_SLUG>`.
   preserved in the conversation history with the project's orchestrator
   rather than in-repo.
 
-### 6.6 Makefile: phony target name colliding with an existing directory
+### 6.6 Big-endian vs. little-endian convention split between `data.c` and `model.c`
+
+- `data.c` reads IDX headers with an explicit big-endian helper
+  (`read_be_u32`, bit-shift MSB-first). `model.c` reads IC01 headers
+  with `memcpy`-based little-endian reads (the file format and host are
+  both little-endian by assumption, ADR-010). These two conventions live
+  in adjacent files and must not blur: a future edit touching both
+  modules must not "fix" one convention by applying the other.
+
+### 6.7 `data_load_images` validates architectural assumptions, not just format validity (ADR-013)
+
+- `data_load_images` rejects any IDX image file whose `rows`/`cols` are
+  not exactly `28×28`, even though the IDX format itself places no such
+  constraint. This is intentional: the trained model's first layer
+  (`784 → 128`) cannot accept any other input width. A structurally
+  valid IDX file with different dimensions is not valid input for this
+  project's architecture. Future loaders for fixed-shape data should
+  default to the same posture — validate against the current
+  architectural assumption, not only the file format's minimal validity
+  rules.
+
+### 6.8 Makefile: phony target name colliding with an existing directory
 
 - A target named exactly like an existing directory (e.g. `lib` as both
   a Makefile target and the `lib/` output directory) can be silently
