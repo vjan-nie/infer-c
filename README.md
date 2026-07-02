@@ -6,6 +6,9 @@ the digit with 92.76% accuracy on the MNIST test set — no ML framework,
 no external dependencies, and no Python required at inference time.
 
 ---
+About this project. I built infer-c to understand how neural-network inference works at a low level — in a systems language, from scratch, no ML framework. It's a learning project, developed with AI as a pair-programmer and mentor; the architecture and the design decisions in docs/adr/ are my own, and the companion learning guide reflects how I understand the concepts.
+
+---
 
 ## Quick start
 
